@@ -53,10 +53,13 @@ void* foggy_socket(const foggy_socket_type_t socket_type,
   // FIXME: Sequence numbers should be randomly initialized. The next expected
   // sequence number should be initialized according to the SYN packet from the
   // other side of the connection.
-  sock->window.last_byte_sent = 0;
+
+  srand(time(NULL));
+
+  sock->window.last_byte_sent = rand() % 1000;
   sock->window.last_ack_received = 0;
   sock->window.dup_ack_count = 0;
-  sock->window.next_seq_expected = 0;
+  sock->window.next_seq_expected = sock -> window.last_byte_sent+1;
   sock->window.ssthresh = WINDOW_INITIAL_SSTHRESH;
   sock->window.advertised_window = WINDOW_INITIAL_ADVERTISED;
   sock->window.congestion_window = WINDOW_INITIAL_WINDOW_SIZE;
