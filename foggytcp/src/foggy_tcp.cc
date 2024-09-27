@@ -23,6 +23,11 @@ from releasing their forks in any public places. */
 
 #include "foggy_backend.h"
 
+  void on_syn_packet(foggy_socket_t *sock, foggy_tcp_header_t *hdr) {
+    // Assuming hdr has a method to get the sequence number
+    sock->window.next_seq_expected = get_seq(hdr) + 1; // Set to SYN's seq number + 1
+  } 
+  
 void* foggy_socket(const foggy_socket_type_t socket_type,
                const char *server_port, const char *server_ip) {
   foggy_socket_t* sock = new foggy_socket_t;
@@ -56,15 +61,17 @@ void* foggy_socket(const foggy_socket_type_t socket_type,
 
   srand(time(NULL));
 
-  sock->window.last_byte_sent = rand() % 1000;
+  sock->window.last_byte_sent = rand() % 1000; //0
   sock->window.last_ack_received = 0;
   sock->window.dup_ack_count = 0;
-  sock->window.next_seq_expected = sock -> window.last_byte_sent+1;
+  //sock->window.next_seq_expected = sock -> window.last_byte_sent+1; //0
   sock->window.ssthresh = WINDOW_INITIAL_SSTHRESH;
   sock->window.advertised_window = WINDOW_INITIAL_ADVERTISED;
   sock->window.congestion_window = WINDOW_INITIAL_WINDOW_SIZE;
   sock->window.reno_state = RENO_SLOW_START;
   pthread_mutex_init(&(sock->window.ack_lock), NULL);
+
+
 
   for (int i = 0; i < RECEIVE_WINDOW_SLOT_SIZE; ++i) {
     sock->receive_window[i].is_used = 0;
