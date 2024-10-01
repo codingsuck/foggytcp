@@ -7,7 +7,9 @@ No part of the project may be copied and/or distributed without
 the express permission of the course staff. Everyone is prohibited 
 from releasing their forks in any public places. */
 
-
+#include <stdio.h>
+#include<stdlib.h>
+#include <time.h> //header for time
 
 #include <deque>
 #include <cstdlib>
@@ -45,7 +47,7 @@ void on_recv_pkt(foggy_socket_t *sock, uint8_t *pkt) {
   switch (flags) {
     case ACK_FLAG_MASK: {
       uint32_t ack = get_ack(hdr);
-      //printf("Receive ACK %d\n", ack);
+      printf("Receive ACK %d\n", ack);
 
       sock->window.next_seq_expected = get_seq(hdr) + get_payload_len(pkt);   // moving ack
       //printf("sock->window.next_seq_expected %d\n", sock->window.next_seq_expected);
@@ -101,14 +103,16 @@ void on_recv_pkt(foggy_socket_t *sock, uint8_t *pkt) {
 void send_pkts(foggy_socket_t *sock, uint8_t *data, int buf_len) {
   uint8_t *data_offset = data;
   transmit_send_window(sock);
+  srand(time(NULL));
 
-  if (buf_len > 0) {
+  if (buf_len > 0 ) {
       if (sock->window.last_byte_sent == 0)
       {
-        sock->window.last_byte_sent = rand() % 1000;
-        //printf("initial sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
+        sock->window.last_byte_sent = rand() % 1000 ;
+        printf("initial sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
       }
-    while (buf_len != 0) {
+    while (buf_len > 0 && sock->send_window.size() < 3) 
+    {
       uint16_t payload_len = MIN(buf_len, (int)MSS);
 
 
@@ -131,7 +135,7 @@ void send_pkts(foggy_socket_t *sock, uint8_t *data, int buf_len) {
       
   
         sock->window.last_byte_sent = sock->window.next_seq_expected + sock->window.last_byte_sent ;
-        printf("sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
+        //printf("sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
       
 
       buf_len -= payload_len;
@@ -180,7 +184,7 @@ void process_receive_window(foggy_socket_t *sock) {
   }
 }
 
-void transmit_send_window(foggy_socket_t *sock) {
+/*void transmit_send_window(foggy_socket_t *sock) {
   if (sock->send_window.empty()) return;
 
   // An stop-and-wait implementation. 
@@ -198,9 +202,31 @@ void transmit_send_window(foggy_socket_t *sock) {
     sendto(sock->socket, slot.msg, get_plen(hdr), 0,
             (struct sockaddr *)&(sock->conn), sizeof(sock->conn));
   }
+}*/
+
+void transmit_send_window(foggy_socket_t *sock) {
+    while (!sock->send_window.empty()) {
+        send_window_slot_t& slot = sock->send_window.front();
+        foggy_tcp_header_t *hdr = (foggy_tcp_header_t *)slot.msg;
+
+        if (!slot.is_sent) {
+            debug_printf("Sending packet %d %d\n", get_seq(hdr),
+                         get_seq(hdr) + get_payload_len(slot.msg));
+            slot.is_sent = 1;
+            sendto(sock->socket, slot.msg, get_plen(hdr), 0,
+                   (struct sockaddr *)&(sock->conn), sizeof(sock->conn));
+        } else {
+            // Break if the first packet is sent but not acknowledged
+            if (!has_been_acked(sock, get_seq(hdr))) {
+                break;
+            }
+        }
+        sock->send_window.pop_front(); // Remove the packet after processing
+        free(slot.msg);
+    }
 }
 
-void receive_send_window(foggy_socket_t *sock) {
+/*void receive_send_window(foggy_socket_t *sock) {
   // Pop out the packets that have been ACKed
   while (1) {
     if (sock->send_window.empty()) break;
@@ -217,4 +243,21 @@ void receive_send_window(foggy_socket_t *sock) {
     sock->send_window.pop_front();
     free(slot.msg);
   }
+}*/
+
+void receive_send_window(foggy_socket_t *sock) {
+    while (!sock->send_window.empty()) {
+        send_window_slot_t& slot = sock->send_window.front();
+        foggy_tcp_header_t *hdr = (foggy_tcp_header_t *)slot.msg;
+
+        if (!slot.is_sent) {
+            break; // Stop if we haven't sent this packet
+        }
+        if (has_been_acked(sock, get_seq(hdr))) {
+            sock->send_window.pop_front();
+            free(slot.msg);
+        } else {
+            break; // Stop if this packet hasn't been acknowledged
+        }
+    }
 }
