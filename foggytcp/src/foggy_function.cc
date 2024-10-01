@@ -7,6 +7,8 @@ No part of the project may be copied and/or distributed without
 the express permission of the course staff. Everyone is prohibited 
 from releasing their forks in any public places. */
 
+
+
 #include <deque>
 #include <cstdlib>
 #include <cstring>
@@ -43,7 +45,12 @@ void on_recv_pkt(foggy_socket_t *sock, uint8_t *pkt) {
   switch (flags) {
     case ACK_FLAG_MASK: {
       uint32_t ack = get_ack(hdr);
-      printf("Receive ACK %d\n", ack);
+      //printf("Receive ACK %d\n", ack);
+
+      sock->window.next_seq_expected = get_seq(hdr) + get_payload_len(pkt);   // moving ack
+      //printf("sock->window.next_seq_expected %d\n", sock->window.next_seq_expected);
+      
+      
 
       // if (get_payload_len(pkt) == 0) handle_congestion_window(sock, pkt);
       sock->window.advertised_window = get_advertised_window(hdr);
@@ -51,6 +58,8 @@ void on_recv_pkt(foggy_socket_t *sock, uint8_t *pkt) {
       if (after(ack, sock->window.last_ack_received)) {
         sock->window.last_ack_received = ack;
       }
+
+      process_receive_window(sock);
     }
 
     // Fallthrough.
@@ -94,8 +103,17 @@ void send_pkts(foggy_socket_t *sock, uint8_t *data, int buf_len) {
   transmit_send_window(sock);
 
   if (buf_len > 0) {
+      if (sock->window.last_byte_sent == 0)
+      {
+        sock->window.last_byte_sent = rand() % 1000;
+        //printf("initial sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
+      }
     while (buf_len != 0) {
       uint16_t payload_len = MIN(buf_len, (int)MSS);
+
+
+
+      
 
       send_window_slot_t slot;
       slot.is_sent = 0;
@@ -107,6 +125,14 @@ void send_pkts(foggy_socket_t *sock, uint8_t *data, int buf_len) {
           MAX(MAX_NETWORK_BUFFER - (uint32_t)sock->received_len, MSS), 0, NULL,
           data_offset, payload_len);
       sock->send_window.push_back(slot);
+
+
+
+      
+  
+        sock->window.last_byte_sent = sock->window.next_seq_expected + sock->window.last_byte_sent ;
+        printf("sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
+      
 
       buf_len -= payload_len;
       data_offset += payload_len;

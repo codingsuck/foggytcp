@@ -38,6 +38,9 @@ typedef struct {
 #define FIN_FLAG_MASK 0x2
 #define IDENTIFIER 3120
 
+
+
+
 // Maximum Segment Size. Make sure to update this if your CCA requires extension
 // data for all packets, as this reduces the payload and thus the MSS.
 #define MSS (MAX_LEN - sizeof(foggy_tcp_header_t))
