@@ -50,7 +50,7 @@ void on_recv_pkt(foggy_socket_t *sock, uint8_t *pkt) {
       printf("Receive ACK %d\n", ack);
 
       sock->window.next_seq_expected = get_seq(hdr) + get_payload_len(pkt);   // moving ack
-      //printf("sock->window.next_seq_expected %d\n", sock->window.next_seq_expected);
+      printf("sock->window.next_seq_expected %d\n", sock->window.next_seq_expected);
       
       
 
@@ -59,7 +59,10 @@ void on_recv_pkt(foggy_socket_t *sock, uint8_t *pkt) {
 
       if (after(ack, sock->window.last_ack_received)) {
         sock->window.last_ack_received = ack;
+        printf("sock->window.last_ack_received: %d\n", sock->window.last_ack_received);
       }
+
+      
 
       process_receive_window(sock);
     }
@@ -111,8 +114,13 @@ void send_pkts(foggy_socket_t *sock, uint8_t *data, int buf_len) {
         sock->window.last_byte_sent = rand() % 1000 ;
         printf("initial sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
       }
+
+
+
+      printf("sock->send_window.size(): %d\n", unsigned(sock->send_window.size()));
     while (buf_len > 0 && sock->send_window.size() < 3) 
     {
+      printf("sock->send_window.size() in while loop: %d\n", unsigned(sock->send_window.size()));
       uint16_t payload_len = MIN(buf_len, (int)MSS);
 
 
@@ -135,12 +143,15 @@ void send_pkts(foggy_socket_t *sock, uint8_t *data, int buf_len) {
       
   
         sock->window.last_byte_sent = sock->window.next_seq_expected + sock->window.last_byte_sent ;
-        //printf("sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
+        printf("sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
       
 
       buf_len -= payload_len;
       data_offset += payload_len;
       sock->window.last_byte_sent += payload_len;
+      printf("buf_len %d\n",buf_len);
+      printf("payload_len %d\n",payload_len);
+      //printf("data_offset %d\n",data_offset);
     }
   }
   receive_send_window(sock);
@@ -204,7 +215,7 @@ void process_receive_window(foggy_socket_t *sock) {
   }
 }*/
 
-void transmit_send_window(foggy_socket_t *sock) {
+/*void transmit_send_window(foggy_socket_t *sock) {
     while (!sock->send_window.empty()) {
         send_window_slot_t& slot = sock->send_window.front();
         foggy_tcp_header_t *hdr = (foggy_tcp_header_t *)slot.msg;
@@ -224,7 +235,31 @@ void transmit_send_window(foggy_socket_t *sock) {
         sock->send_window.pop_front(); // Remove the packet after processing
         free(slot.msg);
     }
+}*/
+void transmit_send_window(foggy_socket_t *sock) {
+    while (!sock->send_window.empty()) {
+        send_window_slot_t& slot = sock->send_window.front();
+        foggy_tcp_header_t *hdr = (foggy_tcp_header_t *)slot.msg;
+
+        if (!slot.is_sent) {
+            debug_printf("Sending packet %d %d\n", get_seq(hdr),
+                         get_seq(hdr) + get_payload_len(slot.msg));
+            slot.is_sent = 1;
+            sendto(sock->socket, slot.msg, get_plen(hdr), 0,
+                   (struct sockaddr *)&(sock->conn), sizeof(sock->conn));
+        } else {
+            // Check for ACK
+            if (has_been_acked(sock, get_seq(hdr))) {
+                sock->send_window.pop_front(); // Slide the window
+                free(slot.msg); // Free the acknowledged packet
+                
+            } else {
+                break; // Stop if we hit an unacknowledged packet
+            }
+        }
+    }
 }
+
 
 /*void receive_send_window(foggy_socket_t *sock) {
   // Pop out the packets that have been ACKed
@@ -245,7 +280,7 @@ void transmit_send_window(foggy_socket_t *sock) {
   }
 }*/
 
-void receive_send_window(foggy_socket_t *sock) {
+/*void receive_send_window(foggy_socket_t *sock) {
     while (!sock->send_window.empty()) {
         send_window_slot_t& slot = sock->send_window.front();
         foggy_tcp_header_t *hdr = (foggy_tcp_header_t *)slot.msg;
@@ -260,4 +295,23 @@ void receive_send_window(foggy_socket_t *sock) {
             break; // Stop if this packet hasn't been acknowledged
         }
     }
+}*/
+
+void receive_send_window(foggy_socket_t *sock) {
+    while (!sock->send_window.empty()) {
+        send_window_slot_t& slot = sock->send_window.front();
+        foggy_tcp_header_t *hdr = (foggy_tcp_header_t *)slot.msg;
+
+        if (!slot.is_sent) {
+            break; // Stop if we haven't sent this packet
+        }
+        if (has_been_acked(sock, get_seq(hdr))) {
+            sock->send_window.pop_front();
+            free(slot.msg);
+            
+        } else {
+            break; // Stop if this packet hasn't been acknowledged
+        }
+    }
 }
+
