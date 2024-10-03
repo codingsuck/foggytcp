@@ -54,21 +54,16 @@ void* foggy_socket(const foggy_socket_type_t socket_type,
   // sequence number should be initialized according to the SYN packet from the
   // other side of the connection.
 
-  //srand(time(NULL));
 
-  sock->window.last_byte_sent = 0; //rand() % 1000
-  sock->window.last_ack_received = 0; //0
+  sock->window.last_byte_sent = 0; 
+  sock->window.last_ack_received = 0; 
   sock->window.dup_ack_count = 0;
-  sock->window.next_seq_expected = 0; //sock -> window.last_byte_sent
-  sock->window.ssthresh = WINDOW_INITIAL_SSTHRESH;
-  sock->window.advertised_window = WINDOW_INITIAL_ADVERTISED;
-  sock->window.congestion_window = WINDOW_INITIAL_WINDOW_SIZE;
+  sock->window.next_seq_expected = 0; 
+  sock->window.ssthresh = 65535;
+  sock->window.advertised_window = 65535 * 100;
+  sock->window.congestion_window = 65535 * 10;
   sock->window.reno_state = RENO_SLOW_START;
   pthread_mutex_init(&(sock->window.ack_lock), NULL);
-
-  //printf("sock->window.last_byte_sent: %d\n", sock->window.last_byte_sent);
-  //printf("sock->window.next_seq_expected: %d\n", sock->window.next_seq_expected);
-
 
 
 

@@ -40,18 +40,20 @@ typedef enum {
 } reno_state_t;
 
 typedef struct {
-  int is_sent;
-  uint8_t* msg;
-
-  int is_rtt_sample;
-  struct timespec send_time;
-  time_t timeout_interval;
+    int is_sent;
+    uint8_t* msg;
+    struct timespec send_time;
+    time_t timeout_interval;
 } send_window_slot_t;
 
+
 typedef struct {
-  uint8_t* msg;
-  int is_used;
+    uint8_t* msg;
+    int is_used;
+    uint32_t seq_num;  //new add
+    uint16_t payload_len;    //new add
 } receive_window_slot_t;
+
 
 /* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> */
 
@@ -61,19 +63,19 @@ typedef enum {
 } foggy_socket_type_t;
 
 typedef struct {
-  uint32_t last_byte_sent;
-  uint32_t last_ack_received;
-  
-  uint32_t dup_ack_count;
-  uint32_t next_seq_expected;
+    uint32_t last_byte_sent;
+    uint32_t last_ack_received;
+    uint32_t next_seq_expected;
 
-  uint32_t ssthresh;
-  uint32_t advertised_window;
-  uint32_t congestion_window;
+    uint32_t congestion_window;  
+    uint32_t advertised_window;    
+    uint32_t ssthresh;             
 
-  reno_state_t reno_state;
-  pthread_mutex_t ack_lock;
+    uint32_t dup_ack_count;         
+    reno_state_t reno_state;    
+    pthread_mutex_t ack_lock;
 } window_t;
+
 
 /**
  * This structure holds the state of a socket. You may modify this structure as
