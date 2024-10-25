@@ -1,0 +1,16 @@
+sudo ./capture_packets.sh start sample.pcap
+
+sudo ./capture_packets.sh stop sample.pcap
+
+sudo ./capture_packets.sh analyze sample.pcap
+
+./server 10.0.1.1 3120 sample.out
+
+./client 10.0.1.1 3120 sample.txt
+
+
+// test file
+
+./server 10.0.1.1 3120 test.out
+
+./client 10.0.1.1 3120 src/client.cc

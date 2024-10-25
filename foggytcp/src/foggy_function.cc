@@ -97,7 +97,56 @@ void on_recv_pkt(foggy_socket_t *sock, uint8_t *pkt) {
         free(ack_pkt);
        }
     }
-}
+
+    /*loss recovery
+    When the packet loss happens, you should be able to detect the packet loss and recover it. 
+    The sender detects the packet loss by timeout 
+    (to simpify, we don’t need to consider timeout in our project) and three duplicate ACKs. 
+    Then the sender should retransmit the lost packet again to recover the loss.
+
+    if the package is sent,  sock->window.dup_ack_count will increase by 1, 
+    if the  sock->window.dup_ack_count is 3, it will retransmit the package
+    if the package is received,  sock->window.dup_ack_count will be reset to 0
+    */
+    /*if (flags && ACK_FLAG_MASK) 
+    {
+        if (rec_seq_num == sock->window.last_byte_sent) 
+        {
+            sock->window.dup_ack_count = 0;
+        } 
+        else 
+        {
+            sock->window.dup_ack_count++;
+        }*/
+
+
+/*
+Flow control
+Flow control is related to RWND and we can get the value from the header of ACK packets from receiver. 
+The advertised window in the packet header is equal to RWND as shown in the following figure. 
+So what you should do here is extract the advertise window size from the header. 
+RWND is used to avoid that the sender sends too much packets in a short period to overflow the packet buffer of receiver. 
+RWND + unprocessed packets size = buffer size. 
+And, in this project, this formulation is equal to RWND + unused bytes in receive_window = receive_window size. 
+So the receiver has to update RWND every time sending ACK packets.
+
+And in the code, we use
+window.advertised_window to represent the advertise window size and provide
+get_advertised_window/set_advertised_window to get/set the advertised window size in the packet header.
+
+first, get the value of window.advertised_window from the header of ACK packets from reciver
+then, set buffer size = RWND + unprocessed packets size
+then, set receive_window size = RWND + unused bytes in receive_window
+finally, update RWND everytime ACK packet is sent in reciver
+
+*/
+    if (flags && ACK_FLAG_MASK) 
+    {
+        uint32_t advertised_window = get_advertised_window(hdr);
+        sock->window.advertised_window = advertised_window;
+    }
+    }
+
 
 
 
@@ -146,6 +195,118 @@ void send_pkts(foggy_socket_t *sock, uint8_t *data, int buf_len) {
         data_offset += payload_len;
     }
 
+
+    // for flow control
+    if (sock->window.advertised_window == 0) 
+    {
+        sock->window.advertised_window = 65535;
+    }
+
+    /*
+    loss recovery
+    When the packet loss happens, you should be able to detect the packet loss and recover it. 
+    The sender detects the packet loss by timeout 
+    (to simpify, we don’t need to consider timeout in our project) and three duplicate ACKs. 
+    Then the sender should retransmit the lost packet again to recover the loss.
+
+    if the package is sent, sock->window.dup_ack_count will increase by 1, 
+    If the sender receives three duplicate ACKs for the same packet, it indicates that the next packet in sequence has been lost. 
+    The sender then retransmits the lost packet immediately.
+    if the package is received,  sock->window.dup_ack_count will be reset to 0
+    */
+    if (sock->window.dup_ack_count == 3) 
+    {
+        printf("Retransmitting packet %d\n", sock->window.last_ack_received);
+        for (std::deque<send_window_slot_t>::iterator i = sock->send_window.begin(); i != sock->send_window.end(); i++) 
+        {
+            send_window_slot_t &slot = *i;
+            foggy_tcp_header_t *hdr = (foggy_tcp_header_t *)slot.msg;
+            if (get_seq(hdr) == sock->window.last_ack_received) 
+            {
+                sendto(sock->socket, slot.msg, get_plen(hdr), 0,
+                       (struct sockaddr *)&(sock->conn), sizeof(sock->conn));
+                break;
+            }
+        }
+    }
+
+/*Congestion Control
+Congestion control is related to CWND, which we can get the value in the sender. 
+And in the code, we use windows.congestion_window to represent the congestion window size.
+
+Congestion control is composed of three different parts: 
+slow start, congestion avoidance and fast recovery. 
+Then we introduce the detail of them.
+
+Slow start: at the beginning, CWND is 1 MSS and every time the sender receives a ACK, 
+CWND increases by 1 MSS. So CWND will be doubled every RTT time.
+
+Congestion avoidance: During the slow start process, CWND is not doubled all time. 
+After CWND reaches the threshold value-SSTHRESH (MSS * 64 by default), CWND only increases (MSS/CWND) MSS, 
+which is equal to 1 MSS every RTT time. This process is called congestion avoidance.
+
+Fast recovery: By default, the sender have to go back to slow start state when the sender detects three duplicate ACK or timeout 
+(to simpify, we don’t need to consider timeout in our project). 
+But now, we have fast recovery, which means the sender only needs to set SSTHRESH=SSTHRESH/2 and CWND=SSTHRESH+3*MSS.
+
+at first, window.reno_state = RENO_SLOW_START. cwnd = 1 MSS, window.ssthresh = 65535, window.congestion_window = 65535 * 20, sock->window.dup_ack_count = 0
+if reciver receive new ack, sock->window.dup_ack_count = 0, cwnd = cwnd + MSS and allow transmit new segment
+if reciver recive duplicated ack, sock->window.dup_ack_count + 1
+if reciver recive duplicated ack 3 times, window.reno_state = RENO_FAST_RECOVERY, window.ssthresh = window.ssthresh/2, cwnd = window.ssthresh + 3*MSS, retransmit the lost packet immediately
+if cwnd >= sshtresh, window.reno_state = RENO_CONGESTION_AVOIDANCE, cwnd = cwnd + MSS*(MSS/cwnd), allow transmit new segment
+if reciver recive duplicated ack, sock->window.dup_ack_count + 1
+if reciver recive duplicated ack 3 times, window.reno_state = RENO_FAST_RECOVERY, window.ssthresh = window.ssthresh/2, cwnd = window.ssthresh + 3*MSS, retransmit the lost packet immediately
+if sock-> window.dup_ack_count = 3, retransmit the lost packet immediately, ssthresh = cwnd/2, cwnd = ssthresh+3*MSS, window.reno_state = RENO_FAST_RECOVERY
+if reciver receive duplicated ack, cwnd = cwnd + MSS, allow transmit new segment
+
+*/
+    if (sock->window.reno_state == RENO_SLOW_START) 
+    {
+        if (sock->window.dup_ack_count == 0) 
+        {
+            sock->window.congestion_window += MSS;
+        } 
+        else 
+        {
+            sock->window.dup_ack_count++;
+        }
+
+        if (sock->window.congestion_window >= sock->window.ssthresh) 
+        {
+            sock->window.reno_state = RENO_CONGESTION_AVOIDANCE;
+        }
+    } 
+    else if (sock->window.reno_state == RENO_CONGESTION_AVOIDANCE) 
+    {
+        if (sock->window.dup_ack_count == 0) 
+        {
+            sock->window.congestion_window += MSS * (MSS / sock->window.congestion_window);
+        } 
+        else 
+        {
+            sock->window.dup_ack_count++;
+        }
+
+        if (sock->window.dup_ack_count == 3) 
+        {
+            sock->window.reno_state = RENO_FAST_RECOVERY;
+            sock->window.ssthresh = sock->window.congestion_window / 2;
+            sock->window.congestion_window = sock->window.ssthresh + 3 * MSS;
+        }
+    } 
+    else if (sock->window.reno_state == RENO_FAST_RECOVERY) 
+    {
+        if (sock->window.dup_ack_count == 3) 
+        {
+            sock->window.ssthresh = sock->window.congestion_window / 2;
+            sock->window.congestion_window = sock->window.ssthresh + 3 * MSS;
+        } 
+        else 
+        {
+            sock->window.congestion_window += MSS;
+        }
+    }
+
     transmit_send_window(sock);
 }
 
@@ -171,6 +332,7 @@ void add_receive_window(foggy_socket_t *sock, uint8_t *pkt) {
             break;
         }
     }
+
 }
 
 
@@ -211,6 +373,7 @@ void process_receive_window(foggy_socket_t *sock) {
             }
         }
     }
+
 }
 
 
@@ -238,6 +401,7 @@ void transmit_send_window(foggy_socket_t *sock) {
             clock_gettime(CLOCK_MONOTONIC, &slot.send_time);
         }
     }
+
 }
 
 void receive_send_window(foggy_socket_t *sock) {

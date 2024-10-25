@@ -61,7 +61,7 @@ void* foggy_socket(const foggy_socket_type_t socket_type,
   sock->window.next_seq_expected = 0; 
   sock->window.ssthresh = 65535;
   sock->window.advertised_window = 65535 * 100;
-  sock->window.congestion_window = 65535 * 10;
+  sock->window.congestion_window = 65535 * 20;
   sock->window.reno_state = RENO_SLOW_START;
   pthread_mutex_init(&(sock->window.ack_lock), NULL);
 
